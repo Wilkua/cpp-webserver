@@ -1,11 +1,70 @@
 #include <arpa/inet.h>
-#include <signal.h>
+#include <mutex>
+#include <queue>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <thread>
 #include <unistd.h>
+
 #include <iostream>
 
 #include "webserver.h"
+
+typedef std::shared_ptr<std::queue<int> > WorkQueuePtr;
+
+std::mutex workQueueMutex;
+
+void threadHandleConnection(WorkQueuePtr queue)
+{
+    if (queue == nullptr)
+        return;
+
+    for (;;)
+    {
+        std::this_thread::yield();
+
+        int workSocket = -1;
+        {
+            std::lock_guard<std::mutex> guard(workQueueMutex);
+            if (queue->empty())
+                continue;
+
+            workSocket = queue->front(); // Take work
+            queue->pop();
+        } // drop guard so other threads can work
+
+        if (workSocket == -1) // quit signal
+            break;
+
+        timeval timeout;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000; // 100ms
+
+        if (setsockopt(workSocket, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(timeval)) < 0)
+        {
+            std::cerr << "Failed to set socket option: " << std::strerror(errno) << std::endl;
+            std::string errStr =  "HTTP/1.1 500 Internal Error\r\n\r\n";
+            send(workSocket, errStr.c_str(), errStr.length(), 0);
+            close(workSocket);
+            continue;
+        }
+
+        web::http::Request req = web::http::parseRequest(workSocket);
+        req.socket(workSocket);
+
+        std::stringstream output;
+        output << "HTTP/1.1 200 Ok\r\n"
+            << "Content-Type: text/plain\r\n"
+            << "Content-Length: 2\r\n"
+            << "\r\n"
+            << "OK";
+
+        std::string outStr = output.str();
+        int bytesSent = send(workSocket, outStr.c_str(), outStr.length(), 0);
+
+        close(workSocket);
+    } // for(;;)
+}
 
 web::Server::Server()
 {
@@ -59,6 +118,11 @@ int web::Server::run()
         return errno;
     }
 
+    std::queue<int> workQueue;
+    WorkQueuePtr wqPtr(&workQueue);
+    std::thread worker(threadHandleConnection, wqPtr);
+    std::thread worker2(threadHandleConnection, wqPtr);
+
     int status = 0;
     sockaddr_in client;
     socklen_t clientLen = sizeof(client);
@@ -83,52 +147,8 @@ int web::Server::run()
 
         if (clientSock >= 0)
         {
-            timeval timeout;
-            timeout.tv_sec = 0;
-            timeout.tv_usec = 100000; // 100ms
-
-            if (setsockopt(clientSock, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(timeval)) < 0)
-            {
-                std::cerr << "Failed to set socket option: " << std::strerror(errno) << std::endl;
-                std::string errStr =  "HTTP/1.1 500 Internal Error\r\n\r\n";
-                send(clientSock, errStr.c_str(), errStr.length(), 0);
-                close(clientSock);
-                continue;
-            }
-
-            http::Request req = http::parseRequest(clientSock);
-            req.socket(sock);
-
-            std::stringstream output;
-            output << "HTTP/1.1 200 Ok\r\n"
-                << "Content-Type: text/plain\r\n"
-                << "Content-Length: 2\r\n"
-                << "\r\n"
-                << "OK";
-
-            std::string outStr = output.str();
-            int bytesSent = send(clientSock, outStr.c_str(), outStr.length(), 0);
-
-            close(clientSock);
-
-            char clientIp[INET_ADDRSTRLEN] = { 0 };
-            inet_ntop(client.sin_family, &client.sin_addr, clientIp, INET_ADDRSTRLEN);
-
-            for (auto &header : req.headers())
-            {
-                std::cout
-                    << header.first << ": "
-                    << header.second << std::endl;
-            }
-
-            std::cout << clientIp << " "
-                << "- - "
-                << "[%t] "
-                << '"' << req.method()
-                << " " << req.path()
-                << " " << req.version() << '"'
-                << " 200 " << bytesSent
-                << std::endl;
+            std::lock_guard<std::mutex> g(workQueueMutex);
+            workQueue.push(clientSock);
         }
 
         if (!running)
