@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <condition_variable>
 #include <mutex>
 #include <queue>
 #include <sys/socket.h>
@@ -13,6 +14,7 @@
 typedef std::shared_ptr<std::queue<int> > WorkQueuePtr;
 
 std::mutex workQueueMutex;
+std::condition_variable queueCv;
 
 void threadHandleConnection(WorkQueuePtr queue)
 {
@@ -21,17 +23,12 @@ void threadHandleConnection(WorkQueuePtr queue)
 
     for (;;)
     {
-        std::this_thread::yield();
+        std::unique_lock<std::mutex> lk(workQueueMutex);
+        queueCv.wait(lk, [=]{ return !(queue->empty()); });
 
-        int workSocket = -1;
-        {
-            std::lock_guard<std::mutex> guard(workQueueMutex);
-            if (queue->empty())
-                continue;
-
-            workSocket = queue->front(); // Take work
-            queue->pop();
-        } // drop guard so other threads can work
+        int workSocket = queue->front(); // Take work
+        queue->pop();
+        lk.unlock(); // don't hold the lock too long
 
         if (workSocket == -1) // quit signal
             break;
@@ -99,9 +96,7 @@ int web::Server::run()
 {
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0)
-    {
         return errno;
-    }
 
     sockaddr_in saddr;
     saddr.sin_family = AF_INET;
@@ -109,19 +104,27 @@ int web::Server::run()
     saddr.sin_port = htons(m_port);
 
     if (bind(sock, (sockaddr *)&saddr, sizeof(saddr)) < 0)
-    {
         return errno;
-    }
 
     if (listen(sock, 20) < 0)
-    {
         return errno;
-    }
 
     std::queue<int> workQueue;
     WorkQueuePtr wqPtr(&workQueue);
-    std::thread worker(threadHandleConnection, wqPtr);
-    std::thread worker2(threadHandleConnection, wqPtr);
+    std::vector<std::thread> workers;
+
+    unsigned int numThreads = std::thread::hardware_concurrency();
+    if (numThreads < 2)
+        numThreads = 1; // 1 or 0 response should have 1 worker thread
+    else
+        --numThreads;
+
+    for (int i = 0; i < numThreads; ++i)
+        workers.push_back(std::thread(threadHandleConnection, wqPtr));
+
+    std::stringstream log;
+    log << "found threads = " << numThreads << ", workers = " << workers.size();
+    m_logger->debug(log.str());
 
     int status = 0;
     sockaddr_in client;
@@ -150,6 +153,7 @@ int web::Server::run()
             std::lock_guard<std::mutex> g(workQueueMutex);
             workQueue.push(clientSock);
         }
+        queueCv.notify_one();
 
         if (!running)
             break;
