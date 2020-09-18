@@ -96,6 +96,8 @@ namespace http
                         else
                             ++pos;
                     }
+                    if (inBuf[pos] == '\r')
+                        continue;
                     if (subStep == 0)
                         key.append(1, inBuf[pos]);
                     else
@@ -106,6 +108,7 @@ namespace http
             if (step == 2)
             {
                 // body content
+                break;
             }
 
             bytesRead = recv(sock, (void *)inBuf, INBUF_SIZE, 0);
