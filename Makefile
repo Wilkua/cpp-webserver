@@ -4,17 +4,16 @@ OBJS=main.o Logger.o Server.o Request.o Parser.o
 
 .PHONY: all, clean
 
-all: server client
+all: servd client
 
 clean:
 	rm -rf *.o servd
 
-server: $(OBJS)
+servd: $(OBJS)
 	g++ -o servd $(OBJS)
 
 %.o: %.cpp
 	g++ $(_CXX_OPTS) -c $<
-	# g++ -std=c++14 -g -c $<
 
 client: client.cpp
 	g++ -std=c++14 -o client client.cpp
