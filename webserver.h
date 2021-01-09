@@ -5,6 +5,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "Logger.h"
 
@@ -74,6 +75,11 @@ namespace http
     typedef std::pair<std::string, RouteHandler> RoutePair;
 
     Request parseRequest(int sock);
+
+    namespace Handlers
+    {
+        void NotFound(const http::Request &, http::Response &);
+    } // namespace Handlers
 } // namespace http
 
     class Server
@@ -81,7 +87,7 @@ namespace http
     private:
         std::unique_ptr<Logger> m_logger;
         int m_port;
-        // std::map<http::Method, std::unique_ptr<std::vector<http::RoutePair> > > m_routeMap;
+        std::unique_ptr<std::vector<http::RoutePair> > m_getProc;
 
         // http::Request parseRequest(int sock);
 
@@ -92,6 +98,7 @@ namespace http
         void configure(Logger &logger);
         void route(http::Method method, std::string path, http::RouteHandler handler);
         void route(http::Method method, const char *path, http::RouteHandler handler);
+        std::unique_ptr<std::vector<http::RoutePair> > getProc();
         int run();
     };
 } // namespace web

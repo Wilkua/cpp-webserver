@@ -1,5 +1,6 @@
 #include <arpa/inet.h>
 #include <condition_variable>
+#include <cstring>
 #include <mutex>
 #include <queue>
 #include <sys/socket.h>
@@ -16,7 +17,7 @@ typedef std::shared_ptr<std::queue<int> > WorkQueuePtr;
 std::mutex workQueueMutex;
 std::condition_variable queueCv;
 
-void threadHandleConnection(WorkQueuePtr queue)
+void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
 {
     if (queue == nullptr)
         return;
@@ -40,7 +41,7 @@ void threadHandleConnection(WorkQueuePtr queue)
         if (setsockopt(workSocket, SOL_SOCKET, SO_RCVTIMEO, (void *)&timeout, sizeof(timeval)) < 0)
         {
             std::cerr << "Failed to set socket option: " << std::strerror(errno) << std::endl;
-            std::string errStr =  "HTTP/1.1 500 Internal Error\r\n\r\n";
+            std::string errStr = "HTTP/1.1 500 Internal Error\r\n\r\n";
             send(workSocket, errStr.c_str(), errStr.length(), 0);
             close(workSocket);
             continue;
@@ -49,9 +50,22 @@ void threadHandleConnection(WorkQueuePtr queue)
         web::http::Request req = web::http::parseRequest(workSocket);
         req.socket(workSocket);
 
+        web::http::RouteHandler handler = web::http::Handlers::NotFound;
+        if (req.method() == "GET")
+        {
+            for (web::http::RoutePair &v : *srv->getProc())
+            {
+                if (v.first == req.path())
+                {
+                    handler = v.second;
+                    break;
+                }
+            }
+        }
+
         std::stringstream output;
         output << "HTTP/1.1 200 Ok\r\n"
-            << "Content-Type: text/plain\r\n"
+            << "Content-Type: text/plain; charset=utf-8\r\n"
             << "Content-Length: 2\r\n"
             << "\r\n"
             << "OK";
@@ -65,6 +79,7 @@ void threadHandleConnection(WorkQueuePtr queue)
 
 web::Server::Server()
 {
+    m_getProc = std::make_unique<std::vector<http::RoutePair> >();
 }
 
 void web::Server::configure(int port)
@@ -83,13 +98,18 @@ void web::Server::route(http::Method method, std::string path, http::RouteHandle
     log << "register handler for route " << path << " with method " << method;
     if (m_logger != nullptr)
         m_logger->debug(log.str());
-    // m_routeMap.insert(method, std::vector<http::RoutePair>());
-    // m_routeMap[method].push_back(http::RoutePair(path, handler));
+    if (method == http::Method::GET)
+        m_getProc->push_back(http::RoutePair(path, handler));
 }
 
 void web::Server::route(http::Method method, const char *path, std::function<void(const http::Request &req, http::Response &resp)> handler)
 {
     route(method, std::string(path), handler);
+}
+
+std::unique_ptr<std::vector<web::http::RoutePair> > web::Server::getProc()
+{
+    return m_getProc;
 }
 
 int web::Server::run()
@@ -120,7 +140,7 @@ int web::Server::run()
         --numThreads;
 
     for (int i = 0; i < numThreads; ++i)
-        workers.push_back(std::thread(threadHandleConnection, wqPtr));
+        workers.push_back(std::thread(threadHandleConnection, wqPtr, this));
 
     std::stringstream log;
     log << "found threads = " << numThreads << ", workers = " << workers.size();
