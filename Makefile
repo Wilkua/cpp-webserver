@@ -1,6 +1,6 @@
-_CXX_OPTS=-std=c++14 -g $(CXX_OPTS)
+_CXX_OPTS=-std=c++17 -g $(CXX_OPTS)
 
-OBJS=main.o Logger.o Server.o Request.o Parser.o StandardHandlers.o
+OBJS=main.o Logger.o Server.o Response.o Request.o Parser.o StandardHandlers.o
 
 .PHONY: all, clean
 

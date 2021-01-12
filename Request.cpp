@@ -4,11 +4,11 @@ namespace web
 {
 namespace http
 {
-    std::string Request::header(const std::string &key)
+    std::optional<std::string> Request::header(const std::string &key)
     {
         if (m_headers.count(key) > 0)
             return m_headers[key];
-        return std::string();
+        return {};
     }
 
     void Request::header(const std::string &key, const std::string &value)
@@ -31,11 +31,11 @@ namespace http
         m_method = method;
     }
 
-    std::string Request::param(const std::string &key)
+    std::optional<std::string> Request::param(const std::string &key)
     {
         if (m_params.count(key) > 0)
             return m_params[key];
-        return std::string();
+        return {};
     }
 
     void Request::param(const std::string &key, const std::string &value)

@@ -50,9 +50,14 @@ void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
         web::http::Request req = web::http::parseRequest(workSocket);
         req.socket(workSocket);
 
-        web::http::RouteHandler handler = web::http::Handlers::NotFound;
+        std::shared_ptr<std::vector<web::http::RoutePair> > procList = nullptr;
         if (req.method() == "GET")
         {
+            procList = srv->getProc();
+        }
+
+        web::http::RouteHandler handler = web::http::Handlers::NotFound;
+        if (procList != nullptr)
             for (web::http::RoutePair &v : *srv->getProc())
             {
                 if (v.first == req.path())
@@ -61,17 +66,12 @@ void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
                     break;
                 }
             }
-        }
 
-        std::stringstream output;
-        output << "HTTP/1.1 200 Ok\r\n"
-            << "Content-Type: text/plain; charset=utf-8\r\n"
-            << "Content-Length: 2\r\n"
-            << "\r\n"
-            << "OK";
+        web::http::Response res(req.version());
+        handler(req, res);
 
-        std::string outStr = output.str();
-        int bytesSent = send(workSocket, outStr.c_str(), outStr.length(), 0);
+        std::string outStr = res.text();
+        send(workSocket, outStr.c_str(), outStr.length(), 0);
 
         close(workSocket);
     } // for(;;)
@@ -80,6 +80,11 @@ void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
 web::Server::Server()
 {
     m_getProc = std::make_unique<std::vector<http::RoutePair> >();
+}
+
+std::shared_ptr<Logger> web::Server::logger()
+{
+    return m_logger;
 }
 
 void web::Server::configure(int port)
@@ -107,7 +112,7 @@ void web::Server::route(http::Method method, const char *path, std::function<voi
     route(method, std::string(path), handler);
 }
 
-std::unique_ptr<std::vector<web::http::RoutePair> > web::Server::getProc()
+std::shared_ptr<std::vector<web::http::RoutePair> > web::Server::getProc()
 {
     return m_getProc;
 }

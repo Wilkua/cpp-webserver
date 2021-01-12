@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <optional>
@@ -28,14 +29,28 @@ namespace http
     class Response
     {
     private:
-        std::stringstream m_body;
+        std::string m_body; // this should probably be represented by a binary data type
+        std::map<std::string, std::string> m_headers;
+        uint16_t m_statusCode;
+        std::string m_statusMessage;
+        std::string m_version;
 
     public:
-        std::map<std::string, std::string> headers;
+        Response(const std::string &version) : m_statusCode(200), m_statusMessage("Ok"), m_version(version) {};
 
-        void bodyContent(std::string content);
-        void bodyContent(const wchar_t *content);
-        void bodyContent(const char *content);
+        std::string text();
+
+        void body(const std::string &b);
+
+        std::optional<std::string> header(const std::string &key);
+        void header(const std::string &key, const std::string &value);
+        std::map<std::string, std::string> headers() const;
+
+        uint16_t status() const;
+        void status(uint16_t s);
+
+        std::string statusMessage() const;
+        void statusMessage(const std::string &msg);
     };
 
     class Request
@@ -50,14 +65,14 @@ namespace http
 
     public:
         // Property definitions
-        std::string header(const std::string &key);
+        std::optional<std::string> header(const std::string &key);
         void header(const std::string &key, const std::string &value);
         std::map<std::string, std::string> headers() const;
 
         std::string method() const;
         void method(const std::string &method);
 
-        std::string param(const std::string &key);
+        std::optional<std::string> param(const std::string &key);
         void param(const std::string &key, const std::string &value);
         std::map<std::string, std::string> params() const;
 
@@ -85,20 +100,22 @@ namespace http
     class Server
     {
     private:
-        std::unique_ptr<Logger> m_logger;
+        std::shared_ptr<Logger> m_logger;
         int m_port;
-        std::unique_ptr<std::vector<http::RoutePair> > m_getProc;
+        std::shared_ptr<std::vector<http::RoutePair> > m_getProc;
 
         // http::Request parseRequest(int sock);
 
     public:
         Server();
 
+        std::shared_ptr<Logger> logger();
+
         void configure(int port);
         void configure(Logger &logger);
         void route(http::Method method, std::string path, http::RouteHandler handler);
         void route(http::Method method, const char *path, http::RouteHandler handler);
-        std::unique_ptr<std::vector<http::RoutePair> > getProc();
+        std::shared_ptr<std::vector<http::RoutePair> > getProc();
         int run();
     };
 } // namespace web

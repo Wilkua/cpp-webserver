@@ -24,8 +24,22 @@ int main(int argc, const char *argv[])
         // body.append(name);
         // body.append("!");
 
-        // resp.bodyContent(body);
-        // resp.header("Content-Type", "text/plain");
+        resp.header("Content-Type", "text/plain; charset=utf-8");
+        resp.body("Hello, world!");
+    });
+
+    server.route(web::http::Method::GET, "/test", [](const web::http::Request &req, web::http::Response &res)
+    {
+        res.header("Content-Type", "text/html; charset=utf-8");
+        std::stringstream html;
+        html << "<!DOCTYPE html>"
+            << "<html><head>"
+            << "<title>Test Page</title>"
+            << "<meta charset=\"utf-8\">"
+            << "</head><body>"
+            << "<h1>Testing</h1>"
+            << "</body></html>";
+        res.body(html.str());
     });
 
     std::stringstream log;
