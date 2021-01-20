@@ -1,8 +1,17 @@
 #include <cstring>
 #include <iostream>
+#include <signal.h>
 
 #include "Logger.h"
 #include "webserver.h"
+
+static web::Server *g_server;
+
+void onSig(int signum)
+{
+    if (g_server != nullptr)
+        g_server->shutdown();
+}
 
 int main(int argc, const char *argv[])
 {
@@ -11,12 +20,12 @@ int main(int argc, const char *argv[])
     // logger.format("[%Y-%M-%DT%H:%M:%S%Z](%l) %m");
     Logger logger;
 
-    web::Server server;
+    g_server = new web::Server();
 
-    server.configure(8080);
-    server.configure(logger);
+    g_server->configure(8080);
+    g_server->configure(&logger);
 
-    server.route(web::http::Method::GET, "/", [](const web::http::Request &req, web::http::Response &resp)
+    g_server->route(web::http::Method::GET, "/", [](const web::http::Request &req, web::http::Response &resp)
     {
         // srv.logger()->debug("route /");
         // std::string name = req.params["name"].value_or("World");
@@ -28,7 +37,7 @@ int main(int argc, const char *argv[])
         resp.body("Hello, world!");
     });
 
-    server.route(web::http::Method::GET, "/test", [](const web::http::Request &req, web::http::Response &res)
+    g_server->route(web::http::Method::GET, "/test", [](const web::http::Request &req, web::http::Response &res)
     {
         res.header("Content-Type", "text/html; charset=utf-8");
         std::stringstream html;
@@ -42,17 +51,27 @@ int main(int argc, const char *argv[])
         res.body(html.str());
     });
 
-    std::stringstream log;
-    log << "Buffer width = " << INBUF_SIZE << " bytes";
-    logger.debug(log.str());
-    logger.info("Starting server");
-    int retCode = server.run();
+    signal(SIGINT, onSig);
+
+    {
+        std::stringstream log;
+        log << "Buffer width = " << INBUF_SIZE << " bytes";
+        logger.debug(log.str());
+        logger.info("Starting server");
+    }
+    int retCode = g_server->run();
     if (retCode > 0)
     {
-        log.clear();
+        std::stringstream log;
         log << "retcode = " << retCode
             << " " << strerror(retCode);
         logger.error(log.str());
+    }
+
+    if (g_server != nullptr)
+    {
+        delete g_server;
+        g_server = nullptr;
     }
 
     return retCode;

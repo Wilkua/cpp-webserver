@@ -2,6 +2,7 @@
 #include <condition_variable>
 #include <cstring>
 #include <mutex>
+#include <poll.h>
 #include <queue>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -12,7 +13,7 @@
 
 #include "webserver.h"
 
-typedef std::shared_ptr<std::queue<int> > WorkQueuePtr;
+typedef std::queue<int>* WorkQueuePtr;
 
 std::mutex workQueueMutex;
 std::condition_variable queueCv;
@@ -77,12 +78,12 @@ void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
     } // for(;;)
 }
 
-web::Server::Server()
+web::Server::Server() : m_running(false)
 {
     m_getProc = std::make_unique<std::vector<http::RoutePair> >();
 }
 
-std::shared_ptr<Logger> web::Server::logger()
+Logger *web::Server::logger()
 {
     return m_logger;
 }
@@ -92,9 +93,9 @@ void web::Server::configure(int port)
     m_port = port;
 }
 
-void web::Server::configure(Logger &logger)
+void web::Server::configure(Logger *logger)
 {
-    m_logger = std::unique_ptr<Logger>(&logger);
+    m_logger = logger;
 }
 
 void web::Server::route(http::Method method, std::string path, http::RouteHandler handler)
@@ -135,7 +136,6 @@ int web::Server::run()
         return errno;
 
     std::queue<int> workQueue;
-    WorkQueuePtr wqPtr(&workQueue);
     std::vector<std::thread> workers;
 
     unsigned int numThreads = std::thread::hardware_concurrency();
@@ -145,45 +145,78 @@ int web::Server::run()
         --numThreads;
 
     for (int i = 0; i < numThreads; ++i)
-        workers.push_back(std::thread(threadHandleConnection, wqPtr, this));
+        workers.push_back(std::thread(threadHandleConnection, &workQueue, this));
 
     std::stringstream log;
     log << "found threads = " << numThreads << ", workers = " << workers.size();
-    m_logger->debug(log.str());
+    if (m_logger != nullptr)
+        m_logger->debug(log.str());
+
+    struct pollfd mainSock { sock, POLLIN };
+    struct pollfd pollList[1] = { mainSock };
 
     int status = 0;
     sockaddr_in client;
     socklen_t clientLen = sizeof(client);
-    int running = true;
+    m_running = true;
     for (;;) {
-        int clientSock = accept(sock, (sockaddr *)&client, &clientLen);
-        if (errno > 0 && errno != EWOULDBLOCK)
+        int pollCount = poll(pollList, 1, POLL_TIMEOUT);
+
+        if (pollCount > 0 && pollList[0].revents & POLLIN)
         {
-            status = errno;
+            int clientSock = accept(sock, (sockaddr *)&client, &clientLen);
+            if (errno > 0 && errno != EWOULDBLOCK)
+            {
+                status = errno;
+                if (clientSock >= 0)
+                {
+                    close(clientSock);
+                    clientSock = -1;
+                }
+
+                break;
+            }
+
             if (clientSock >= 0)
             {
-                close(clientSock);
-                clientSock = -1;
+                std::lock_guard<std::mutex> g(workQueueMutex);
+                workQueue.push(clientSock);
+                queueCv.notify_one();
             }
-            if (sock >= 0)
-            {
-                close(sock);
-                sock = -1;
-            }
-            break;
         }
 
-        if (clientSock >= 0)
-        {
-            std::lock_guard<std::mutex> g(workQueueMutex);
-            workQueue.push(clientSock);
-        }
-        queueCv.notify_one();
-
-        if (!running)
+        if (!m_running)
             break;
     }
 
+    if (sock >= 0)
+    {
+        close(sock);
+        sock = -1;
+        if (m_logger != nullptr)
+            m_logger->info("Closed incoming socket - stopped accepting connections");
+    }
+
+    if (m_logger != nullptr)
+        m_logger->info("Shutting down - waiting on workers to quit ...");
+
+    {
+        std::lock_guard<std::mutex> g(workQueueMutex);
+        for (int i = 0; i < workers.size(); ++i)
+            workQueue.push(-1);
+    }
+    queueCv.notify_all();
+
+    for (int i = 0; i < workers.size(); ++i)
+        workers[i].join();
+
     return status;
+}
+
+void web::Server::shutdown()
+{
+    if (m_logger != nullptr)
+        m_logger->info("Received shutdown command");
+    m_running = false;
 }
 

@@ -14,6 +14,10 @@
 #define INBUF_SIZE 1024
 #endif
 
+#ifndef POLL_TIMEOUT
+#define POLL_TIMEOUT 1000
+#endif
+
 namespace web
 {
 namespace http
@@ -100,22 +104,25 @@ namespace http
     class Server
     {
     private:
-        std::shared_ptr<Logger> m_logger;
+        Logger *m_logger;
         int m_port;
         std::shared_ptr<std::vector<http::RoutePair> > m_getProc;
+        bool m_running;
 
         // http::Request parseRequest(int sock);
 
     public:
         Server();
 
-        std::shared_ptr<Logger> logger();
+        Logger *logger();
 
         void configure(int port);
-        void configure(Logger &logger);
+        void configure(Logger *logger);
         void route(http::Method method, std::string path, http::RouteHandler handler);
         void route(http::Method method, const char *path, http::RouteHandler handler);
         std::shared_ptr<std::vector<http::RoutePair> > getProc();
         int run();
+        void shutdown();
     };
 } // namespace web
+
