@@ -69,7 +69,19 @@ void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
             }
 
         web::http::Response res(req.version());
-        handler(req, res);
+
+        // Run through all middleware before going to route requests
+        for (auto f : *srv->middleware())
+            f(req, res);
+
+        /* TODO(william): Possible better solution is to have all
+         *   requests handled by onRequest middleware and handlers
+         *   with methods and paths are given a wrapper which
+         *   checks if the method and path match before running
+         *   the handler.
+         */
+        if (!res.skipRoute())
+            handler(req, res);
 
         std::string outStr = res.text();
         send(workSocket, outStr.c_str(), outStr.length(), 0);
@@ -81,6 +93,16 @@ void threadHandleConnection(WorkQueuePtr queue, web::Server *srv)
 web::Server::Server() : m_running(false)
 {
     m_getProc = std::make_unique<std::vector<http::RoutePair> >();
+    m_middleware = new std::vector<http::RouteHandler>();
+}
+
+web::Server::~Server()
+{
+    if (m_middleware != nullptr)
+    {
+        delete m_middleware;
+        m_middleware = nullptr;
+    }
 }
 
 Logger *web::Server::logger()
@@ -98,6 +120,24 @@ void web::Server::configure(Logger *logger)
     m_logger = logger;
 }
 
+std::shared_ptr<std::vector<web::http::RoutePair> > web::Server::getProc()
+{
+    return m_getProc;
+}
+
+std::vector<web::http::RouteHandler> *web::Server::middleware()
+{
+    return m_middleware;
+}
+
+void web::Server::onRequest(http::RouteHandler handler)
+{
+    if (m_logger != nullptr)
+        m_logger->debug("Adding side-effect middleware");
+
+    m_middleware->push_back(handler);
+}
+
 void web::Server::route(http::Method method, std::string path, http::RouteHandler handler)
 {
     std::stringstream log;
@@ -111,11 +151,6 @@ void web::Server::route(http::Method method, std::string path, http::RouteHandle
 void web::Server::route(http::Method method, const char *path, std::function<void(const http::Request &req, http::Response &resp)> handler)
 {
     route(method, std::string(path), handler);
-}
-
-std::shared_ptr<std::vector<web::http::RoutePair> > web::Server::getProc()
-{
-    return m_getProc;
 }
 
 int web::Server::run()
@@ -138,13 +173,13 @@ int web::Server::run()
     std::queue<int> workQueue;
     std::vector<std::thread> workers;
 
-    unsigned int numThreads = std::thread::hardware_concurrency();
+    size_t numThreads = std::thread::hardware_concurrency();
     if (numThreads < 2)
         numThreads = 1; // 1 or 0 response should have 1 worker thread
     else
         --numThreads;
 
-    for (int i = 0; i < numThreads; ++i)
+    for (size_t i = 0; i < numThreads; ++i)
         workers.push_back(std::thread(threadHandleConnection, &workQueue, this));
 
     std::stringstream log;
@@ -202,12 +237,12 @@ int web::Server::run()
 
     {
         std::lock_guard<std::mutex> g(workQueueMutex);
-        for (int i = 0; i < workers.size(); ++i)
+        for (size_t i = 0; i < workers.size(); ++i)
             workQueue.push(-1);
     }
     queueCv.notify_all();
 
-    for (int i = 0; i < workers.size(); ++i)
+    for (size_t i = 0; i < workers.size(); ++i)
         workers[i].join();
 
     return status;

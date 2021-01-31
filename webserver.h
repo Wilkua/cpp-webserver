@@ -35,12 +35,13 @@ namespace http
     private:
         std::string m_body; // this should probably be represented by a binary data type
         std::map<std::string, std::string> m_headers;
+        bool m_skipRoute;
         uint16_t m_statusCode;
         std::string m_statusMessage;
         std::string m_version;
 
     public:
-        Response(const std::string &version) : m_statusCode(200), m_statusMessage("Ok"), m_version(version) {};
+        Response(const std::string &version) : m_skipRoute(false), m_statusCode(200), m_statusMessage("Ok"), m_version(version) {};
 
         std::string text();
 
@@ -50,6 +51,8 @@ namespace http
         void header(const std::string &key, const std::string &value);
         std::map<std::string, std::string> headers() const;
 
+        bool skipRoute() const;
+        void skipRoute(bool b);
         uint16_t status() const;
         void status(uint16_t s);
 
@@ -107,20 +110,24 @@ namespace http
         Logger *m_logger;
         int m_port;
         std::shared_ptr<std::vector<http::RoutePair> > m_getProc;
+        std::vector<http::RouteHandler> *m_middleware;
         bool m_running;
 
         // http::Request parseRequest(int sock);
 
     public:
         Server();
+        ~Server();
 
         Logger *logger();
 
         void configure(int port);
         void configure(Logger *logger);
+        std::shared_ptr<std::vector<http::RoutePair> > getProc();
+        std::vector<http::RouteHandler> *middleware();
+        void onRequest(http::RouteHandler handler);
         void route(http::Method method, std::string path, http::RouteHandler handler);
         void route(http::Method method, const char *path, http::RouteHandler handler);
-        std::shared_ptr<std::vector<http::RoutePair> > getProc();
         int run();
         void shutdown();
     };

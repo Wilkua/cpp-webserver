@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <signal.h>
@@ -24,6 +26,62 @@ int main(int argc, const char *argv[])
 
     g_server->configure(8080);
     g_server->configure(&logger);
+
+    g_server->onRequest([](const web::http::Request req, web::http::Response &res)
+    {
+        if (req.path().substr(0, 7) != "/public")
+            return;
+
+        res.skipRoute(true); // don't do route handle
+
+        // THIS IS BAD!
+        // You should really get the full path and then check
+        // that you're not reading files you shouldn't.
+        std::string fileName = req.path().substr(8); // get end of path
+        FILE *file = fopen(fileName.c_str(), "rb");
+        if (file == NULL) // not open - 404
+        {
+            web::http::Handlers::NotFound(req, res);
+            return;
+        }
+
+        fseek(file, 0, SEEK_END);
+        size_t fs = ftell(file);
+        fseek(file, 0, SEEK_SET);
+
+        void *data = malloc(fs);
+        if (data == NULL)
+        {
+            web::http::Handlers::NotFound(req, res);
+            return;
+        }
+
+        size_t nread = fread(data, 1, fs, file);
+        fclose(file);
+
+        if (nread != fs)
+        {
+            free(data);
+            web::http::Handlers::NotFound(req, res);
+            return;
+        }
+
+        res.body(std::string((char *)data, fs));
+
+        std::string ext = fileName.substr(fileName.find_last_of(".") + 1);
+        std::string typ;
+        if (ext == "html")
+            typ = "text/html; charset=utf-8";
+        else if (ext == "css")
+            typ = "text/css; charset=utf-8";
+        else if (ext == "js")
+            typ = "application/javascript; charset=utf-8";
+        else
+            typ = "text/plain; charset=utf-8";
+        res.header("Content-Type", typ);
+
+        free(data);
+    });
 
     g_server->route(web::http::Method::GET, "/", [](const web::http::Request &req, web::http::Response &resp)
     {

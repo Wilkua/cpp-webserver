@@ -43,6 +43,16 @@ namespace http
         return m_headers;
     }
 
+    bool Response::skipRoute() const
+    {
+        return m_skipRoute;
+    }
+
+    void Response::skipRoute(bool b)
+    {
+        m_skipRoute = b;
+    }
+
     uint16_t Response::status() const
     {
         return m_statusCode;

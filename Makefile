@@ -1,4 +1,4 @@
-_CXX_OPTS=-std=c++17 -g $(CXX_OPTS)
+_CXX_OPTS=-Wall -Werror -O2 -std=c++17 -g $(CXX_OPTS)
 
 OBJS=main.o Logger.o Server.o Response.o Request.o Parser.o StandardHandlers.o
 
