@@ -4,7 +4,7 @@ project('libweb++', 'cpp',
 
 threads_dep = dependency('threads')
 lib = library('web++',
-    'Server.cpp', 'Parser.cpp', 'Request.cpp',
+    'TcpServer.cpp', 'HttpServer.cpp', 'Parser.cpp', 'Request.cpp',
     'Response.cpp', 'StandardHandlers.cpp', 'Logger.cpp',
     dependencies : threads_dep,
     version : '1.0.0')

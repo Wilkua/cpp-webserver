@@ -4,10 +4,10 @@
 #include <iostream>
 #include <signal.h>
 
-#include "Logger.h"
-#include "webserver.h"
+#include <Logger.h>
+#include <HttpServer.h>
 
-static web::Server *g_server;
+static web::http::HttpServer *g_server;
 
 void onSig(int signum)
 {
@@ -22,7 +22,7 @@ int main(int argc, const char *argv[])
     // logger.format("[%Y-%M-%DT%H:%M:%S%Z](%l) %m");
     Logger logger;
 
-    g_server = new web::Server();
+    g_server = new web::http::HttpServer();
 
     g_server->configure(8080);
     g_server->configure(&logger);
@@ -113,7 +113,7 @@ int main(int argc, const char *argv[])
 
     {
         std::stringstream log;
-        log << "Buffer width = " << INBUF_SIZE << " bytes";
+        log << "Buffer width = " << WINDOW_SIZE << " bytes";
         logger.debug(log.str());
         logger.info("Starting server");
     }

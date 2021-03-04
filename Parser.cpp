@@ -1,6 +1,6 @@
 #include <sys/socket.h>
 
-#include "webserver.h"
+#include <HttpServer.h>
 
 namespace web
 {
@@ -10,8 +10,9 @@ namespace http
     {
         http::Request req;
 
-        char inBuf[INBUF_SIZE] = { 0 };
-        int bytesRead = recv(sock, (void *)inBuf, INBUF_SIZE, 0);
+        char inBuf[WINDOW_SIZE] = { 0 };
+        int bytesRead = recv(sock, (void *)inBuf, WINDOW_SIZE, 0);
+        // TODO(william): Check for and handle read errors
         uint8_t step = 0;
         int subStep = 0;
         std::string httpVersion; // request-line parser HTTP version
@@ -19,6 +20,7 @@ namespace http
         std::string path; // request-line parser path
         std::string key; // header parser key
         std::string val; // header parser value
+        std::u32string rawBody;
         // Step 0 - Request line
         //   Substep 0 - Method
         //   Substep 1 - URL Path
@@ -108,11 +110,28 @@ namespace http
             if (step == 2)
             {
                 // body content
-                break;
-            }
+                uint64_t contentLength = std::stoull(req.header("Content-Type").value_or("0"));
 
-            bytesRead = recv(sock, (void *)inBuf, INBUF_SIZE, 0);
+                // This may be overly-aggressive
+                if (contentLength == 0)
+                    break;
+
+                // If pos >= bytesRead then we went past the chunk boundary and we need to read
+                // more data. This shouldn't happen often.
+                while (pos < bytesRead)
+                {
+                    // NOTE(william): this is probably not an efficient way to move data
+                    rawBody.push_back(inBuf[pos]);
+                    ++pos;
+                } // while (pos < bytesRead)
+                if (rawBody.length() >= contentLength)
+                    break;
+            } // if (step == 2)
+
+            bytesRead = recv(sock, (void *)inBuf, WINDOW_SIZE, 0);
         } while (bytesRead > 0);
+
+        req.body(rawBody);
 
         return req;
     }

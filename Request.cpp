@@ -1,9 +1,19 @@
-#include "webserver.h"
+#include <Request.h>
 
 namespace web
 {
 namespace http
 {
+    std::u32string Request::body() const
+    {
+        return m_body;
+    }
+
+    void Request::body(const std::u32string &b)
+    {
+        m_body = b;
+    }
+
     std::optional<std::string> Request::header(const std::string &key)
     {
         if (m_headers.count(key) > 0)
